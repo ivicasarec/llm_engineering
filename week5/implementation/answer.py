@@ -1,5 +1,6 @@
+import os
 from pathlib import Path
-from langchain_openai import ChatOpenAI, OpenAIEmbeddings
+from langchain_openai import ChatOpenAI
 from langchain_chroma import Chroma
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_core.messages import SystemMessage, HumanMessage, convert_to_messages
@@ -7,14 +8,18 @@ from langchain_core.documents import Document
 
 from dotenv import load_dotenv
 
-
 load_dotenv(override=True)
 
-MODEL = "gpt-4.1-nano"
+GROQ_MODEL = os.getenv("GROQ_MODEL")
+GROQ_API_KEY = os.getenv('GROQ_API_KEY')
+GROQ_BASE_URL = os.getenv("GROQ_BASE_URL")
 DB_NAME = str(Path(__file__).parent.parent / "vector_db")
 
-# embeddings = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
-embeddings = OpenAIEmbeddings(model="text-embedding-3-large")
+embeddings = HuggingFaceEmbeddings(
+    model_name="sentence-transformers/all-mpnet-base-v2",
+    model_kwargs={"device": "cpu"},
+    encode_kwargs={"normalize_embeddings": True},
+)
 RETRIEVAL_K = 10
 
 SYSTEM_PROMPT = """
@@ -28,7 +33,7 @@ Context:
 
 vectorstore = Chroma(persist_directory=DB_NAME, embedding_function=embeddings)
 retriever = vectorstore.as_retriever()
-llm = ChatOpenAI(temperature=0, model_name=MODEL)
+llm = ChatOpenAI(temperature=0, model_name=GROQ_MODEL, api_key=GROQ_API_KEY, base_url=GROQ_BASE_URL)
 
 
 def fetch_context(question: str) -> list[Document]:
