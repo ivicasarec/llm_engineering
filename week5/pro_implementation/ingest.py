@@ -1,3 +1,5 @@
+import os
+
 from pathlib import Path
 from openai import OpenAI
 from dotenv import load_dotenv
@@ -11,11 +13,17 @@ from tenacity import retry, wait_exponential
 
 load_dotenv(override=True)
 
-MODEL = "openai/gpt-4.1-nano"
+GEMINI_MODEL = os.getenv("GEMINI_MODEL")
+GEMINI_MODEL = GEMINI_MODEL if GEMINI_MODEL.startswith("gemini/") else f"gemini/{GEMINI_MODEL}"
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
 DB_NAME = str(Path(__file__).parent.parent / "preprocessed_db")
 collection_name = "docs"
-embedding_model = "text-embedding-3-large"
+
+LMSTUDIO_EMBEDDING_MODEL = os.getenv("LMSTUDIO_EMBEDDING_MODEL")
+LMSTUDIO_BASE_URL = os.getenv("LMSTUDIO_BASE_URL")
+LMSTUDIO_API_KEY = os.getenv("LMSTUDIO_API_KEY")
+
 KNOWLEDGE_BASE_PATH = Path(__file__).parent.parent / "knowledge-base"
 AVERAGE_CHUNK_SIZE = 100
 wait = wait_exponential(multiplier=1, min=10, max=240)
@@ -23,7 +31,7 @@ wait = wait_exponential(multiplier=1, min=10, max=240)
 
 WORKERS = 3
 
-openai = OpenAI()
+openai = OpenAI(base_url=LMSTUDIO_BASE_URL, api_key=LMSTUDIO_API_KEY)
 
 
 class Result(BaseModel):
@@ -103,7 +111,7 @@ def make_messages(document):
 @retry(wait=wait)
 def process_document(document):
     messages = make_messages(document)
-    response = completion(model=MODEL, messages=messages, response_format=Chunks)
+    response = completion(model=GEMINI_MODEL, api_key=GEMINI_API_KEY, messages=messages, response_format=Chunks)
     reply = response.choices[0].message.content
     doc_as_chunks = Chunks.model_validate_json(reply).chunks
     return [chunk.as_result(document) for chunk in doc_as_chunks]
@@ -127,7 +135,7 @@ def create_embeddings(chunks):
         chroma.delete_collection(collection_name)
 
     texts = [chunk.page_content for chunk in chunks]
-    emb = openai.embeddings.create(model=embedding_model, input=texts).data
+    emb = openai.embeddings.create(model=LMSTUDIO_EMBEDDING_MODEL, input=texts).data
     vectors = [e.embedding for e in emb]
 
     collection = chroma.get_or_create_collection(collection_name)

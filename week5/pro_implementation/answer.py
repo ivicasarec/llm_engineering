@@ -1,3 +1,5 @@
+import os
+
 from openai import OpenAI
 from dotenv import load_dotenv
 from chromadb import PersistentClient
@@ -9,17 +11,23 @@ from tenacity import retry, wait_exponential
 
 load_dotenv(override=True)
 
-# MODEL = "openai/gpt-4.1-nano"
-MODEL = "groq/openai/gpt-oss-120b"
+GEMINI_MODEL = os.getenv("GEMINI_MODEL")
+GEMINI_MODEL = GEMINI_MODEL if GEMINI_MODEL.startswith("gemini/") else f"gemini/{GEMINI_MODEL}"
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+
 DB_NAME = str(Path(__file__).parent.parent / "preprocessed_db")
 KNOWLEDGE_BASE_PATH = Path(__file__).parent.parent / "knowledge-base"
 SUMMARIES_PATH = Path(__file__).parent.parent / "summaries"
 
 collection_name = "docs"
-embedding_model = "text-embedding-3-large"
-wait = wait_exponential(multiplier=1, min=10, max=240)
 
-openai = OpenAI()
+LMSTUDIO_EMBEDDING_MODEL = os.getenv("LMSTUDIO_EMBEDDING_MODEL")
+LMSTUDIO_BASE_URL = os.getenv("LMSTUDIO_BASE_URL")
+LMSTUDIO_API_KEY = os.getenv("LMSTUDIO_API_KEY")
+
+openai = OpenAI(base_url=LMSTUDIO_BASE_URL, api_key=LMSTUDIO_API_KEY)
+
+wait = wait_exponential(multiplier=1, min=10, max=240)
 
 chroma = PersistentClient(path=DB_NAME)
 collection = chroma.get_or_create_collection(collection_name)
@@ -68,7 +76,7 @@ Reply only with the list of ranked chunk ids, nothing else. Include all the chun
         {"role": "system", "content": system_prompt},
         {"role": "user", "content": user_prompt},
     ]
-    response = completion(model=MODEL, messages=messages, response_format=RankOrder)
+    response = completion(model=GEMINI_MODEL, api_key=GEMINI_API_KEY, messages=messages, response_format=RankOrder)
     reply = response.choices[0].message.content
     order = RankOrder.model_validate_json(reply).order
     return [chunks[i - 1] for i in order]
@@ -103,7 +111,7 @@ Respond only with a short, refined question that you will use to search the Know
 It should be a VERY short specific question most likely to surface content. Focus on the question details.
 IMPORTANT: Respond ONLY with the precise knowledgebase query, nothing else.
 """
-    response = completion(model=MODEL, messages=[{"role": "system", "content": message}])
+    response = completion(model=GEMINI_MODEL,api_key=GEMINI_API_KEY, messages=[{"role": "system", "content": message}])
     return response.choices[0].message.content
 
 
@@ -117,7 +125,7 @@ def merge_chunks(chunks, reranked):
 
 
 def fetch_context_unranked(question):
-    query = openai.embeddings.create(model=embedding_model, input=[question]).data[0].embedding
+    query = openai.embeddings.create(model=LMSTUDIO_EMBEDDING_MODEL, input=[question]).data[0].embedding
     results = collection.query(query_embeddings=[query], n_results=RETRIEVAL_K)
     chunks = []
     for result in zip(results["documents"][0], results["metadatas"][0]):
@@ -141,5 +149,5 @@ def answer_question(question: str, history: list[dict] = []) -> tuple[str, list]
     """
     chunks = fetch_context(question)
     messages = make_rag_messages(question, history, chunks)
-    response = completion(model=MODEL, messages=messages)
+    response = completion(model=GEMINI_MODEL, api_key=GEMINI_API_KEY, messages=messages)
     return response.choices[0].message.content, chunks
